@@ -148,6 +148,20 @@ Per file it stages the input, converts it, writes the mirrored `.root`, then
 **resumable**: any file whose `.root` already exists is skipped, so a
 re-run continues where an interrupted run stopped.
 
+> **`--by-type` (data/ vs mc/).** DELPHI stores its *official* simulation (the
+> `sh_qqps_*` short-DST MC, reconstructed like data) under `collision-data/`
+> **alongside real data** on EOS — so a pure EOS mirror puts MC and data in the
+> same tree, indistinguishable by path. Add `--by-type` to prefix outputs with
+> `data/` or `mc/`:
+> ```
+> /data/delphi_root/data/collision-data/Y13709/Y13709.1.root   # short94 data
+> /data/delphi_root/mc/collision-data/Y10638/Y10638.1.root     # qqps MC
+> /data/delphi_root/mc/simulated-data/wupp/apacic105/.../*.root # APACIC MC
+> ```
+> The `submit_lep1_*.sh` scripts and `cluster_smoketest.sh` enable it by default.
+> (You can always tell a file's type from its contents too: MC carries the
+> `GenPart_*`/`SimPart_*` truth collections that data lacks.)
+
 `batch.sh` accepts a **preset** (`data`/`mc`/`mc-apacic`), a raw **recid**, or a
 DELPHI **nickname** (e.g. `short94_c2`, `sh_qqps_b94_2l_c2`) which it resolves to
 a recid via the Open Data API:
@@ -264,10 +278,17 @@ container for you — never navigate by it.
 data's `short94_c2`. Others: `sh_kk2f…` (KK2f), `sh_apacic…` (APACIC shower),
 `sh_wphact…` (4-fermion), `sh_hzha…`/`pythia…yuk…` (Higgs searches),
 `eeqq/eemm/lvqq/llll/…` (4-fermion & 2-photon). `lo_*` = long-DST sim.
-The `simulated-data/{cern,karlsruhe,wupp,…}` subfolders are just the **production
-site** (storage origin), not a physics difference. DELPHI produced MC matched to
-each year's conditions, so for a measurement you pair the MC processing tag with
-the data processing tag.
+DELPHI produced MC matched to each year's conditions, so for a measurement you
+pair the MC processing tag with the data processing tag.
+
+> ⚠️ **Where MC lives on EOS is *not* a clean data/sim split.** The *official*
+> full simulation (the `sh_*` short-DST MC reconstructed through the same chain
+> as data — including `sh_qqps`) is stored under **`collision-data/Y#####`,
+> right alongside real data**. Only separately-managed productions sit under
+> **`simulated-data/<site>/`** (`cern`, `karlsruhe`, `wupp` = where they were
+> generated, e.g. APACIC under `wupp`). So you can't tell the `qqps` MC from
+> data by EOS path alone — use the recid/nickname, or convert with `--by-type`
+> to land outputs under `data/` vs `mc/`.
 
 **What a mainstream LEP1 analysis needs.** The flagship DELPHI results (Z
 lineshape, R_b/R_c, α_s, event shapes, fragmentation) use **LEP1, Z-peak data,
@@ -275,7 +296,9 @@ lineshape, R_b/R_c, α_s, event shapes, fragmentation) use **LEP1, Z-peak data,
 
 - **Real data:** `short92`–`short95` (inclusive short DST — hadronic **and**
   leptonic) — order ~100 GB total. Ready-made: `./submit_lep1_core.sh`.
-- **Hadronic MC:** matched `sh_qqps_*9X` (Z→qq̄) — `./submit_lep1_mc.sh`.
+- **Hadronic MC:** matched `sh_qqps_*9X` (Z→qq̄, PYTHIA) — `./submit_lep1_mc.sh`.
+  For the hadronisation systematic, the alternative-shower **APACIC** sample
+  (`sh_apacic105_*`, 1993–95) — `./submit_lep1_mc_apacic.sh`.
 - **Leptonic MC** (Z→μμ `lo_dymu_*`, Z→ττ KORALZ `lo_kora_*`/`lo_koz4_*`,
   Z→ee Bhabha `lo_baba_*`) — `./submit_lep1_mc_leptonic.sh`. Optional, for
   di-lepton analyses; not all year/channel combos exist on Open Data (see the
@@ -405,7 +428,8 @@ labelling is misleading on this point.) MC conversion needs no DDB.
 | `run.sh`       | Simple one-dataset orchestrate: image → DDB → download → convert to `./out`. |
 | `cluster_smoketest.sh` | One-shot sanity check on a new machine: convert 1 data + 1 MC file. |
 | `submit_lep1_core.sh` | Submit the full 1992–1995 LEP1 short-DST **data** conversion as SLURM jobs. |
-| `submit_lep1_mc.sh` | Submit the matched 1992–1995 Z→qq̄ (hadronic) **MC** as SLURM jobs. |
+| `submit_lep1_mc.sh` | Submit the matched 1992–1995 Z→qq̄ (PYTHIA, hadronic) **MC** as SLURM jobs. |
+| `submit_lep1_mc_apacic.sh` | Submit the 1993–1995 APACIC Z→hadrons **MC** (fragmentation systematic). |
 | `submit_lep1_mc_leptonic.sh` | Submit the 1992–1995 leptonic **MC** (Z→μμ/ττ/ee) as SLURM jobs. |
 | `lib.sh`       | Shared config (recids), docker/podman detection, `run_in_image`. |
 

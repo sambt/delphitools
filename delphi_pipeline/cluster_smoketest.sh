@@ -44,7 +44,9 @@ run_one() {
     echo
     echo "=== [smoketest] $label: download + convert 1 file ($dataset) ==="
     # batch.sh handles image+DDB ensure, EOS-mirrored output, and resumability.
-    "$HERE/batch.sh" "$dataset" --dest "$DEST" --range 1-1 ${KEEP:+--keep-inputs} \
+    # --by-type so MC and data land under mc/ and data/ (the EOS layout itself
+    # stores the official sim under collision-data/ alongside real data).
+    "$HERE/batch.sh" "$dataset" --dest "$DEST" --range 1-1 --by-type ${KEEP:+--keep-inputs} \
         2>&1 | grep -viE 'VDMCBS|GETTPARA|CART_P|RESCALE|CONFPV|suppressed|MAKEMOD|Schurr|NEUTRAL|Progress:' || true
 }
 

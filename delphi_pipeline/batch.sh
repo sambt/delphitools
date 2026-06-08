@@ -26,6 +26,10 @@
 #
 # Options:
 #   --dest DIR        REQUIRED. Top-level output dir; EOS structure mirrored under it.
+#   --by-type         prefix the mirrored path with data/ or mc/ -- DELPHI stores
+#                     its official sim under collision-data/ alongside real data,
+#                     so without this the qqps MC and data are indistinguishable
+#                     by path. (APACIC sim is already under simulated-data/.)
 #   --keep-inputs     keep the staged .al/.sdst after conversion (default: delete)
 #   --max-events N    cap events per file (default: all / stop at EOF)
 #   --stage DIR       staging dir for downloads (default: <DEST>/.staging)
@@ -40,11 +44,11 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib.sh"
 
-DATASET="${1:?usage: batch.sh <dataset|recid> --dest DIR [--data|--mc] [--range I-J|--files N|--filter RE] [--keep-inputs] [--max-events N] [--dry-run]}"
+DATASET="${1:?usage: batch.sh <dataset|recid> --dest DIR [--data|--mc] [--by-type] [--range I-J|--files N|--filter RE] [--keep-inputs] [--max-events N] [--dry-run]}"
 shift || true
 
 MODE=""; DEST=""; STAGE=""; RANGE=""; NFILES=""; FILTER=""
-KEEP=0; DRY=0; COUNT=0; MAXEV=""
+KEEP=0; DRY=0; COUNT=0; MAXEV=""; BYTYPE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --data) MODE="--data"; shift ;;
@@ -56,6 +60,8 @@ while [ $# -gt 0 ]; do
         --filter) FILTER="${2:?--filter needs a regexp}"; shift 2 ;;
         --max-events) MAXEV="${2:?--max-events needs a number}"; shift 2 ;;
         --keep-inputs) KEEP=1; shift ;;
+        --by-type) BYTYPE=1; shift ;;  # prefix outputs with data/ or mc/ (the EOS
+                                       # layout doesn't separate official sim from data)
         --dry-run) DRY=1; shift ;;
         --count) COUNT=1; shift ;;   # print N selected files and exit (for slurm/submit.sh)
         *) echo "[batch] unknown option: $1" >&2; exit 2 ;;
@@ -101,6 +107,13 @@ esac
 [ -n "$MODE" ] || { echo "[batch] raw recid needs --data or --mc" >&2; exit 2; }
 [ -n "$STAGE" ] || STAGE="$DEST/.staging"
 
+# --by-type: prefix outputs with data/ or mc/ so the (official) simulation that
+# EOS stores under collision-data/ alongside real data is still distinguishable.
+TYPEPFX=""
+if [ "$BYTYPE" -eq 1 ]; then
+    case "$MODE" in --data) TYPEPFX="data/";; --mc) TYPEPFX="mc/";; esac
+fi
+
 need cernopendata-client "pip install --user cernopendata-client"
 
 # ---- gather + select the file list (EOS-relative paths) --------------------
@@ -131,7 +144,7 @@ if [ "$DRY" -eq 1 ]; then
     echo "[batch] dry-run mapping (input EOS path -> output .root):"
     printf '%s\n' "$SEL" | while IFS= read -r rel; do
         case "$rel" in *.al) o="${rel%.al}.root";; *.sdst) o="${rel%.sdst}.root";; *) o="$rel.root";; esac
-        printf '   /eos/opendata/delphi/%s\n      -> %s/%s\n' "$rel" "$DEST" "$o"
+        printf '   /eos/opendata/delphi/%s\n      -> %s/%s%s\n' "$rel" "$DEST" "$TYPEPFX" "$o"
     done
     exit 0
 fi
@@ -155,7 +168,7 @@ printf '%s\n' "$SEL" | { while IFS= read -r rel; do
     base="$(basename "$rel")"
     reldir="$(dirname "$rel")"
     case "$rel" in *.al) outrel="${rel%.al}.root";; *.sdst) outrel="${rel%.sdst}.root";; *) outrel="$rel.root";; esac
-    out="$DEST/$outrel"
+    out="$DEST/$TYPEPFX$outrel"
 
     if [ -s "$out" ]; then
         echo "[batch] ($n/$TOTAL) skip (exists): $outrel"; skip=$((skip+1)); continue

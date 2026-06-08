@@ -35,4 +35,5 @@ echo "[task $k] dest=$DEST"
 exec "$PIPE_DIR/batch.sh" "$DATASET" --dest "$DEST" $MODE \
     --range "${i_start}-${i_end}" \
     ${MAXEV:+--max-events "$MAXEV"} \
-    ${KEEP:+--keep-inputs}
+    ${KEEP:+--keep-inputs} \
+    ${BYTYPE:+--by-type}

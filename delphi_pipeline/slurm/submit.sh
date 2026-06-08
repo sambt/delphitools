@@ -32,7 +32,7 @@ DATASET="${1:?usage: submit.sh <dataset|nickname|recid> --dest DIR [opts] [-- <s
 shift || true
 
 DEST=""; MODE=""; PER_TASK=4; MAXC=20; FILTER=""; RANGE=""
-MAXEV=""; KEEP=0; LOGDIR=""; DRY=0; SB_ARGS=()
+MAXEV=""; KEEP=0; BYTYPE=0; LOGDIR=""; DRY=0; SB_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --dest) DEST="${2:?}"; shift 2 ;;
@@ -44,6 +44,7 @@ while [ $# -gt 0 ]; do
         --range)  RANGE="${2:?}"; shift 2 ;;
         --max-events) MAXEV="${2:?}"; shift 2 ;;
         --keep-inputs) KEEP=1; shift ;;
+        --by-type) BYTYPE=1; shift ;;
         --logdir) LOGDIR="${2:?}"; shift 2 ;;
         --dry-run) DRY=1; shift ;;
         --) shift; while [ $# -gt 0 ]; do SB_ARGS+=("$1"); shift; done ;;
@@ -92,6 +93,7 @@ EXPORTS="ALL,PIPE_DIR=$PIPE_DIR,DATASET=$DATASET,DEST=$DEST,PER_TASK=$PER_TASK"
 [ -n "$MODE" ]  && EXPORTS="$EXPORTS,MODE=$MODE"
 [ -n "$MAXEV" ] && EXPORTS="$EXPORTS,MAXEV=$MAXEV"
 [ "$KEEP" -eq 1 ] && EXPORTS="$EXPORTS,KEEP=1"
+[ "$BYTYPE" -eq 1 ] && EXPORTS="$EXPORTS,BYTYPE=1"
 [ -n "${DDB_DIR:-}" ] && EXPORTS="$EXPORTS,DDB_DIR=$DDB_DIR"
 [ -n "${CONTAINER:-}" ] && EXPORTS="$EXPORTS,CONTAINER=$CONTAINER"
 

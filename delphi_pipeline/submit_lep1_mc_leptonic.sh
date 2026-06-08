@@ -72,10 +72,10 @@ for d in "${DATASETS[@]}"; do
     echo "=== [lep1-lept] $d ==="
     if [ ${#SB[@]} -gt 0 ]; then
         "$HERE/slurm/submit.sh" "$d" --dest "$DEST" \
-            --per-task "$PER_TASK" --max-concurrent "$MAXC" $DRY -- "${SB[@]}"
+            --per-task "$PER_TASK" --max-concurrent "$MAXC" --by-type $DRY -- "${SB[@]}"
     else
         "$HERE/slurm/submit.sh" "$d" --dest "$DEST" \
-            --per-task "$PER_TASK" --max-concurrent "$MAXC" $DRY
+            --per-task "$PER_TASK" --max-concurrent "$MAXC" --by-type $DRY
     fi
     echo
 done
