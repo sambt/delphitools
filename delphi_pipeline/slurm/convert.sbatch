@@ -17,8 +17,13 @@
 #SBATCH --mem=4G
 set -eu
 
+# /etc/bashrc, ~/.bash_profile and conda/mamba activation are NOT written to be
+# "set -u" / "set -e" safe (e.g. /etc/bashrc references BASHRCSOURCED before it
+# is set), so relax both just around them, then restore for the rest of the job.
+set +eu
 source ~/.bash_profile  # for CONTAINER, IMAGE, and PATH updates from get_image.sh
 mamba activate cms
+set -eu
 # ------------------------------------------------------------------------------
 
 : "${PIPE_DIR:?set by submit.sh}"
