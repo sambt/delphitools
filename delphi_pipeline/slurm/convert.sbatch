@@ -17,6 +17,10 @@
 #SBATCH --mem=4G
 set -eu
 
+source ~/.bash_profile  # for CONTAINER, IMAGE, and PATH updates from get_image.sh
+mamba activate cms
+# ------------------------------------------------------------------------------
+
 : "${PIPE_DIR:?set by submit.sh}"
 : "${DATASET:?}" ; : "${DEST:?}" ; : "${PER_TASK:?}"
 MODE="${MODE:-}"               # --data | --mc | empty (preset/nick implies it)
