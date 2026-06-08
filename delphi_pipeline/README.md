@@ -252,6 +252,28 @@ Tips for large campaigns:
 - Staging (`<dest>/.staging`) and inputs are deleted as files convert; only the
   `.root` tree and `<dest>/_logs` remain.
 
+### Did I get everything? — `check.sh`
+
+After a campaign, audit completeness without re-running anything. `check.sh`
+lists, per dataset, which expected `.root` are present and names any missing
+(it reuses `batch.sh`'s resolution + `--by-type` logic, so it looks in exactly
+the place the submit scripts wrote). It exits non-zero if anything is missing,
+so it scripts cleanly.
+
+```bash
+# the four LEP1 data years
+./check.sh --dest $SCRATCH/delphi_root short92_e2 short93_d2 short94_c2 short95_d2
+# the Z->qqbar MC, opening each file to confirm it actually has events (slower)
+./check.sh --dest $SCRATCH/delphi_root --check-events \
+    sh_qqps_k92_2l_e2 sh_qqps_k93_2l_d2 sh_qqps_b94_2l_c2 sh_qqps_b95_1l_d2
+```
+
+`--check-events` opens each `.root` and flags any with 0 entries (catches files
+a killed job left truncated); plain `--check` just verifies existence + non-empty
+(fast, no image needed). Pass `--no-by-type` if you converted with pure EOS
+mirroring. To fix gaps, just re-run the matching `submit_lep1_*.sh` — it skips
+the files you already have.
+
 ---
 
 ## DELPHI data map (what the records/nicknames mean)
@@ -445,6 +467,7 @@ labelling is misleading on this point.) MC conversion needs no DDB.
 | `download.sh`  | Pull files from CERN Open Data by dataset preset or raw recid. |
 | `convert.sh`   | Convert one `.al`/`.sdst` → `.root` (`--data`/`--mc`; stops at EOF; `--out PATH`). |
 | `batch.sh`     | Bulk download+convert a record/nickname, mirroring EOS layout; resumable. |
+| `check.sh`     | Audit completeness: list which expected `.root` are present/missing under `--dest`. |
 | `slurm/submit.sh` | Submit a record as a SLURM array job (one slice of files per task). |
 | `slurm/convert.sbatch` | The array-task body (calls `batch.sh --range`). |
 | `run.sh`       | Simple one-dataset orchestrate: image → DDB → download → convert to `./out`. |

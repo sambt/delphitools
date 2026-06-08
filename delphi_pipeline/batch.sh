@@ -44,11 +44,11 @@ set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib.sh"
 
-DATASET="${1:?usage: batch.sh <dataset|recid> --dest DIR [--data|--mc] [--by-type] [--range I-J|--files N|--filter RE] [--keep-inputs] [--max-events N] [--dry-run]}"
+DATASET="${1:?usage: batch.sh <dataset|recid> --dest DIR [--data|--mc] [--by-type] [--range I-J|--files N|--filter RE] [--keep-inputs] [--max-events N] [--check[-events]] [--dry-run]}"
 shift || true
 
 MODE=""; DEST=""; STAGE=""; RANGE=""; NFILES=""; FILTER=""
-KEEP=0; DRY=0; COUNT=0; MAXEV=""; BYTYPE=0
+KEEP=0; DRY=0; COUNT=0; MAXEV=""; BYTYPE=0; CHECK=0; CHECKEV=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --data) MODE="--data"; shift ;;
@@ -62,6 +62,8 @@ while [ $# -gt 0 ]; do
         --keep-inputs) KEEP=1; shift ;;
         --by-type) BYTYPE=1; shift ;;  # prefix outputs with data/ or mc/ (the EOS
                                        # layout doesn't separate official sim from data)
+        --check) CHECK=1; shift ;;       # report which expected .root exist; convert nothing
+        --check-events) CHECK=1; CHECKEV=1; shift ;;  # ...and open each to verify >0 events
         --dry-run) DRY=1; shift ;;
         --count) COUNT=1; shift ;;   # print N selected files and exit (for slurm/submit.sh)
         *) echo "[batch] unknown option: $1" >&2; exit 2 ;;
@@ -146,6 +148,33 @@ if [ "$DRY" -eq 1 ]; then
         case "$rel" in *.al) o="${rel%.al}.root";; *.sdst) o="${rel%.sdst}.root";; *) o="$rel.root";; esac
         printf '   /eos/opendata/delphi/%s\n      -> %s/%s%s\n' "$rel" "$DEST" "$TYPEPFX" "$o"
     done
+    exit 0
+fi
+
+# ---- check mode: report which expected .root exist; convert nothing ---------
+if [ "$CHECK" -eq 1 ]; then
+    [ "$CHECKEV" -eq 1 ] && "$HERE/get_image.sh" auto >/dev/null   # needed to open files
+    present=0; MISS=()
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        case "$rel" in *.al) outrel="${rel%.al}.root";; *.sdst) outrel="${rel%.sdst}.root";; *) outrel="$rel.root";; esac
+        out="$DEST/$TYPEPFX$outrel"
+        if [ ! -s "$out" ]; then MISS+=("$TYPEPFX$outrel  (missing)"); continue; fi
+        if [ "$CHECKEV" -eq 1 ]; then
+            d="$(cd "$(dirname "$out")" && pwd)"; b="$(basename "$out")"
+            MOUNTS=("$(to_mount_path "$d"):/w:ro")
+            INNER="cd /w && python3 -c \"import ROOT;print(ROOT.RNTupleReader.Open('Events','$b').GetNEntries())\""
+            ne="$(run_in_image 2>/dev/null | tr -dc '0-9\n' | grep -E '^[0-9]+$' | tail -1 || true)"
+            if [ -z "$ne" ] || [ "$ne" -eq 0 ]; then MISS+=("$TYPEPFX$outrel  (0 events / unreadable)"); continue; fi
+        fi
+        present=$((present+1))
+    done < <(printf '%s\n' "$SEL")
+    echo "[batch] check ($DATASET): $present/$TOTAL present, ${#MISS[@]} missing/bad -> $DEST/$TYPEPFX"
+    if [ ${#MISS[@]} -gt 0 ]; then
+        printf '   %s\n' "${MISS[@]}"
+        exit 1
+    fi
+    echo "[batch] all $TOTAL files present."
     exit 0
 fi
 
