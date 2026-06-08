@@ -2,23 +2,32 @@
 # Make the converter image (hepbench/delphi-nanoaod:dev) available locally.
 #
 # Usage:
-#   ./get_image.sh                 # auto: use if present, else build
-#   ./get_image.sh build           # build from ../sim/Dockerfile.nanoaod
-#   ./get_image.sh load <TARBALL>  # docker/podman load from a docker-archive tarball
-#   ./get_image.sh check           # just report whether the image is present
+#   ./get_image.sh                 # auto: present? use it. else tarball? load it. else build (+seed tarball)
+#   ./get_image.sh build           # build from ../sim/Dockerfile.nanoaod (no save)
+#   ./get_image.sh save [TARBALL]  # docker/podman save the image -> tarball
+#   ./get_image.sh load [TARBALL]  # docker/podman load image <- tarball
+#   ./get_image.sh check           # report image + tarball status
 #
-# The image is built FROM jingyucms/delphi-pythia8:latest (a public docker.io
-# pull) and adds ROOT 6.38, FastJet 3.4.3, and the compiled delphi-nanoaod
-# converter from github.com/jingyucms/delphi-nanoaod. On a cluster with rootless
-# podman, `docker` is usually a podman shim and `build`/`load` work the same; if
-# building is slow/disallowed there, build once elsewhere and `load` a tarball
-# (see ../sim/image_sync.sh save/load).
+# WHY a tarball: on HPC, rootless podman's image store (graphroot) is usually
+# NODE-LOCAL and ephemeral (/tmp, /run/user/$UID, local scratch), so a new job
+# starts with an empty store and would otherwise rebuild from scratch every
+# time. Keep ONE tarball on shared/persistent storage and each job loads it
+# (seconds-minutes) instead of rebuilding (~20 min). See HEPBENCH_IMAGE_TARBALL.
+#
+#   $ podman info --format '{{.Store.GraphRoot}}'   # where YOUR images live
+#
+# The tarball path defaults to <pipeline>/delphi-nanoaod-dev.tar (your repo
+# checkout = shared storage). Point it at project/scratch space with:
+#   export HEPBENCH_IMAGE_TARBALL=/n/project/me/delphi-nanoaod-dev.tar
+#
+# The image is built FROM jingyucms/delphi-pythia8:latest (public docker.io
+# pull) + ROOT 6.38, FastJet 3.4.3, and the compiled delphi-nanoaod converter.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib.sh"
 
-# The Dockerfile + build context live in the parent repo's sim/ dir.
 SIM_DIR="${SIM_DIR:-$(cd "$HERE/.." && pwd)/sim}"
+TARBALL="${HEPBENCH_IMAGE_TARBALL:-$HERE/delphi-nanoaod-dev.tar}"
 
 have_image() { "$CONTAINER" image inspect "$IMAGE" >/dev/null 2>&1; }
 
@@ -32,25 +41,44 @@ do_build() {
     "$CONTAINER" build -f "$SIM_DIR/Dockerfile.nanoaod" -t "$IMAGE" "$SIM_DIR"
 }
 
+do_save() {
+    tar="${1:-$TARBALL}"
+    mkdir -p "$(dirname "$tar")"
+    echo "[get_image] saving $IMAGE -> $tar (this is large, ~minutes)"
+    "$CONTAINER" save -o "$tar" "$IMAGE"
+    echo "[get_image] saved: $(du -h "$tar" | cut -f1)  $tar"
+}
+
 do_load() {
-    tar="${1:?usage: get_image.sh load <tarball.tar>}"
+    tar="${1:-$TARBALL}"
     [ -f "$tar" ] || { echo "[get_image] tarball not found: $tar" >&2; exit 1; }
-    echo "[get_image] loading $IMAGE from $tar"
+    echo "[get_image] loading $IMAGE <- $tar"
     "$CONTAINER" load -i "$tar"
 }
 
 case "${1:-auto}" in
     check)
-        if have_image; then echo "[get_image] present: $IMAGE"; else
-            echo "[get_image] MISSING: $IMAGE (run ./get_image.sh build|load)"; exit 1; fi ;;
+        have_image && echo "[get_image] image present in store: $IMAGE" \
+                   || echo "[get_image] image NOT in local store: $IMAGE"
+        [ -f "$TARBALL" ] && echo "[get_image] tarball present: $TARBALL ($(du -h "$TARBALL" | cut -f1))" \
+                          || echo "[get_image] tarball MISSING: $TARBALL"
+        echo "[get_image] store graphroot: $("$CONTAINER" info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo '?')"
+        have_image || [ -f "$TARBALL" ] || exit 1 ;;
     build) do_build ;;
-    load)  shift; do_load "$@" ;;
+    save)  shift; do_save "${1:-}" ;;
+    load)  shift; do_load "${1:-}" ;;
     auto)
         if have_image; then
-            echo "[get_image] already present: $IMAGE"
+            echo "[get_image] already in local store: $IMAGE"
+        elif [ -f "$TARBALL" ]; then
+            do_load "$TARBALL"
         else
-            echo "[get_image] not present; building..."
+            echo "[get_image] not in store and no tarball ($TARBALL); building once..."
             do_build
+            # Seed the tarball so future jobs LOAD instead of rebuilding.
+            if do_save "$TARBALL"; then :; else
+                echo "[get_image] WARNING: could not write tarball $TARBALL (build kept; set HEPBENCH_IMAGE_TARBALL to writable shared storage)" >&2
+            fi
         fi ;;
-    *) echo "usage: $0 {auto|build|load <tar>|check}" >&2; exit 2 ;;
+    *) echo "usage: $0 {auto|build|save [tar]|load [tar]|check}" >&2; exit 2 ;;
 esac

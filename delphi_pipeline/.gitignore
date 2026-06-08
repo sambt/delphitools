@@ -1,0 +1,16 @@
+# Converter image tarball (built artifact, ~17 GB) — keep on shared storage, not in git
+*.tar
+*.sif
+
+# Conditions DB + downloaded/converted data + outputs
+ddb/
+samples/
+out/
+smoketest_out/
+*.root
+*.sdst
+*.al
+
+# Logs / SLURM output
+*.log
+_logs/

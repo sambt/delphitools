@@ -77,15 +77,35 @@ Verify: `cernopendata-client version`.
 **3. The converter image:**
 
 ```bash
-./get_image.sh auto          # build if missing (~17-20 min the first time)
-# or, if you have a saved tarball:
-./get_image.sh load /path/to/hepbench-delphi-nanoaod-dev.tar
-./get_image.sh check         # report whether the image is present
+./get_image.sh auto          # present? use it. tarball? load it. else build once (+ save tarball)
+./get_image.sh check         # show image + tarball status, and your store graphroot
 ```
 
-On a cluster where building is slow or disallowed, build the image once on a
-machine with a daemon, `../sim/image_sync.sh save` a tarball, copy it over, and
-`./get_image.sh load <tarball>` there (rootless `podman load` works the same).
+> ### Keeping the image across jobs (important on HPC)
+> Rootless podman's image store (**graphroot**) is usually **node-local and
+> ephemeral** (`/tmp`, `/run/user/$UID`, local scratch — see
+> `podman info --format '{{.Store.GraphRoot}}'`). So a new job starts with an
+> empty store and would **rebuild the 17 GB image every time**.
+>
+> The fix is built in: `get_image.sh auto` keeps a **tarball on shared storage**
+> and loads it (seconds–minutes) instead of rebuilding (~20 min). The **first**
+> job that finds no image builds it *and seeds the tarball*; **every later job
+> loads** from it. Point the tarball at persistent storage once:
+> ```bash
+> export HEPBENCH_IMAGE_TARBALL=/n/project/me/delphi-nanoaod-dev.tar   # default: <pipeline>/delphi-nanoaod-dev.tar
+> ./get_image.sh auto      # 1st job: build + save tarball;  later jobs: load tarball
+> ```
+> Or build once on any daemon machine and seed the tarball by hand:
+> `./get_image.sh build && ./get_image.sh save`. The submit scripts /
+> `cluster_smoketest.sh` all call `get_image.sh auto`, so they pick this up
+> automatically — set `HEPBENCH_IMAGE_TARBALL` in your job environment.
+>
+> *Array jobs:* each compute node loads the tarball once into its own local
+> store (first task on that node); later tasks on the same node reuse it. If
+> you'd rather avoid even the per-node load, point podman's `graphroot` at
+> persistent storage via `~/.config/containers/storage.conf` — but on
+> NFS/Lustre that needs the `vfs` driver (slower, more disk), so the
+> shared-tarball approach is usually the robust default.
 
 ---
 
@@ -211,7 +231,9 @@ cluster). What `submit.sh` does:
 1. resolves the dataset → recid, counts the selected files, and computes the
    array size (`ceil(N / --per-task)`),
 2. ensures the image (and, for data, the **DDB**) are present **on the submit
-   node once**, so tasks don't each rebuild/redownload,
+   node once** — `get_image.sh auto` builds + saves the shared tarball if needed,
+   so array tasks **load** it per node instead of rebuilding (set
+   `HEPBENCH_IMAGE_TARBALL` to persistent storage; see the install note above),
 3. submits `sbatch --array=0-(K-1)%<max-concurrent>` with everything exported.
 
 Key options: `--per-task N` (files/task, default 4), `--max-concurrent M`
