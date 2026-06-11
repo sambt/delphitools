@@ -1,0 +1,60 @@
+# DELPHI nanoaod conversion image.
+# Layered on the upstream pythia8+DELSIM image; adds:
+#   - ROOT 6.38 (EPEL)
+#   - FastJet 3.4 (built from source)
+#   - delphi-nanoaod (built from github fork)
+# Built once; reused for every .sdst -> .root conversion.
+
+FROM jingyucms/delphi-pythia8:latest
+
+ENV PLINAM=Linux \
+    PRO=161018 \
+    DELPHI_INSTALL_DIR=/delphi \
+    GROUP_DIR=/delphi/releases/almalinux-9-x86_64/latest \
+    DELPHI_RELEASE=latest \
+    DELPHI=/delphi/releases/almalinux-9-x86_64/latest/dstana/161018 \
+    DELPHI_PAM=/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/src/car \
+    DELPHI_CRA=/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/src/car \
+    DELPHI_LIB=/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/lib \
+    DELPHI_DAT=/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/dat \
+    DELPHI_PATH=/delphi/releases/almalinux-9-x86_64/latest/bin \
+    DELPHI_BIN=/delphi/releases/almalinux-9-x86_64/latest/bin \
+    DELPHI_BLKD=/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/blkd \
+    CERN_ROOT=/delphi/releases/almalinux-9-x86_64/latest/cern/pro \
+    CERN=/delphi/releases/almalinux-9-x86_64/latest/cern \
+    CERN_LIB=/delphi/releases/almalinux-9-x86_64/latest/cern/pro/lib \
+    CERN_PAM=/delphi/releases/almalinux-9-x86_64/latest/cern/pro/src/car \
+    ADDLIB=/delphi/releases/almalinux-9-x86_64/latest/dstana/161018/blkd/delblkd.o \
+    GROUPPATH=/delphi/releases/almalinux-9-x86_64/latest/bin \
+    PATH=/delphi/releases/almalinux-9-x86_64/latest/scripts:/delphi/scripts:/delphi/releases/almalinux-9-x86_64/latest/bin:/delphi/releases/almalinux-9-x86_64/latest/cern/pro/bin:/usr/local/bin:/usr/bin:/bin
+
+# ROOT from EPEL (wildcard install to cover all headers delphi-nanoaod uses).
+RUN dnf install -y --quiet "root-*" tbb-devel xxhash-devel wget && dnf clean all
+
+# FastJet 3.4.3 from source.
+RUN cd /tmp && \
+    wget -q https://fastjet.fr/repo/fastjet-3.4.3.tar.gz && \
+    tar xf fastjet-3.4.3.tar.gz && \
+    cd fastjet-3.4.3 && \
+    ./configure --prefix=/usr/local --enable-shared --disable-auto-ptr CXXFLAGS="-O2 -fPIC" && \
+    make -j$(nproc) && make install && \
+    cd / && rm -rf /tmp/fastjet-3.4.3 /tmp/fastjet-3.4.3.tar.gz && \
+    echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && \
+    /sbin/ldconfig
+
+# Build delphi-nanoaod.
+# ROOT 6.36+ moved RNTuple{Model,Writer,Reader} out of the Experimental namespace
+# into ROOT::. EPEL ships 6.38, so we patch the two using-declarations before build.
+RUN git clone --depth 1 https://github.com/jingyucms/delphi-nanoaod.git /nanoaod && \
+    sed -i 's|ROOT::Experimental::RNTupleWriter|ROOT::RNTupleWriter|g; s|ROOT::Experimental::RNTupleModel|ROOT::RNTupleModel|g; s|ROOT::Experimental::RNTupleReader|ROOT::RNTupleReader|g' /nanoaod/delphi-nanoaod/include/nanoaod_writer.hpp && \
+    sed -i 's|model->MakeField<T>({name, description})|model->MakeField<T>(name, description)|' /nanoaod/delphi-nanoaod/src/nanoaod_writer.cpp && \
+    cd /nanoaod && \
+    cmake -B build -DCMAKE_BUILD_TYPE=Release -DFASTJETDIR=/usr/local && \
+    cmake --build build --parallel $(nproc) && \
+    ls -la /nanoaod/build/delphi-nanoaod/delphi-nanoaod
+
+# Conversion wrapper.
+COPY convert_nanoaod.sh /usr/local/bin/convert_nanoaod
+RUN chmod +x /usr/local/bin/convert_nanoaod
+
+ENTRYPOINT ["/usr/local/bin/convert_nanoaod"]
