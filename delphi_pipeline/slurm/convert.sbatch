@@ -41,20 +41,34 @@ export CONTAINER="${CONTAINER:-docker}"
 # HEPBENCH_PODMAN_DIR is a BASE directory. Each array task gets its OWN per-job
 # subdir  <base>/hepbench_podman_<jobid>  as the podman image store, and removes
 # it on exit. So concurrent tasks NEVER share a store (no races on `podman load`)
-# and scratch doesn't fill with leftover ~17 GB image stores. The base must be
-# roomy node-local scratch (overlay driver), or the image load fails with "no
-# space left on device" (the default /tmp is tiny). Base preference:
-#   your $HEPBENCH_PODMAN_DIR, else $SLURM_TMPDIR, else /scratch/$USER.
-# >>> EDIT the base if your node-local scratch isn't /scratch. Keep it on LOCAL
-#     disk so the overlay driver works. <<<
-# Node-local /scratch on FASRC Cannon: per-node, fast, overlay works, purged
-# after the job. Override by exporting HEPBENCH_PODMAN_DIR before submitting.
+# and scratch doesn't fill with leftover ~17 GB image stores. The base must be a
+# WRITABLE, roomy, NODE-LOCAL scratch (overlay driver), or the image load fails.
+#
+# IMPORTANT (FASRC Cannon): the bare /scratch and /scratch/$USER are NOT directly
+# user-writable inside a job -- SLURM pre-creates a per-job local-scratch dir and
+# points $TMPDIR at it (/scratch/$USER/$SLURM_JOB_ID, auto-removed at job end).
+# A hard-coded /scratch/$USER base therefore fails to mkdir, and podman then
+# falls back to /run/user/$UID -> "RunRoot ... not writable" / "creating events
+# dirs: mkdir /run/user/<uid>: permission denied". So prefer the SLURM per-job
+# local dir ($TMPDIR) and VERIFY writability, walking a fallback chain. (Do NOT
+# use $SCRATCH/netscratch -- it's networked; the overlay driver needs local disk.)
+#
 # WATCH THE PARTITION'S LOCAL SCRATCH SIZE: the `shared` partition has only
-# ~68 GB of local /scratch per node (and it's shared with other users' jobs);
-# the ~17 GB image needs ~2x that at peak during `podman load`, so it can run
-# out. Prefer a partition with bigger local scratch (sapphire/test/bigmem/gpu
-# ~396 GB) for headroom.
-PODMAN_BASE="${HEPBENCH_PODMAN_DIR:-/scratch/$USER}"
+# ~68 GB of local /scratch per node (shared with other users' jobs); the ~17 GB
+# image needs ~2x that at peak during `podman load`, so it can run out -- prefer
+# a partition with bigger local scratch (sapphire/test/bigmem/gpu ~396 GB).
+# Override the base by exporting HEPBENCH_PODMAN_DIR before submitting.
+_hb_pick_base() {
+    local c
+    for c in "${HEPBENCH_PODMAN_DIR:-}" "${TMPDIR:-}" "${SLURM_TMPDIR:-}" \
+             "/scratch/${SLURM_JOB_USER:-$USER}/${SLURM_JOB_ID:-}" \
+             "/scratch/$USER" "/tmp/$USER"; do
+        [ -n "$c" ] || continue
+        if mkdir -p "$c" 2>/dev/null && [ -w "$c" ]; then printf '%s' "$c"; return 0; fi
+    done
+    printf '%s' "/tmp"
+}
+PODMAN_BASE="$(_hb_pick_base)"
 HEPBENCH_PODMAN_DIR="$PODMAN_BASE/hepbench_podman_${SLURM_JOB_ID:-$$}"
 export HEPBENCH_PODMAN_DIR
 
@@ -75,7 +89,7 @@ trap cleanup EXIT
 
 echo "[task $k] $DATASET  files ${i_start}-${i_end}  mode=${MODE:-auto}  engine=$CONTAINER"
 echo "[task $k] dest=$DEST"
-echo "[task $k] podman store: $HEPBENCH_PODMAN_DIR (removed on exit)"
+echo "[task $k] podman store: $HEPBENCH_PODMAN_DIR (base=$PODMAN_BASE, removed on exit)"
 
 # NOTE: run (don't exec) batch.sh so the EXIT trap fires for cleanup. set -e
 # makes a batch.sh failure propagate as the task's exit code.
