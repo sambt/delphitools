@@ -38,35 +38,26 @@ i_end=$(( i_start + PER_TASK - 1 ))
 # CONTAINER. On clusters with rootless podman, `docker` is usually a podman shim.
 export CONTAINER="${CONTAINER:-docker}"
 
-# Podman's image store + temp MUST sit on roomy node-local scratch, or the ~17 GB
-# image load fails with "no space left on device" (the default /tmp is tiny).
-# Leave HEPBENCH_PODMAN_DIR unset to auto-pick a location (and auto-clean it):
-#   - $SLURM_TMPDIR if SLURM provides one (SLURM cleans it up for us), else
-#   - a per-job dir on node-local /scratch, which WE delete at the end.
-# >>> EDIT HERE if your node-local scratch isn't /scratch, or export it before
-#     submit.sh. Set HEPBENCH_PODMAN_DRIVER=vfs if it lives on Lustre/NFS. <<<
-NODE_SCRATCH_DEFAULT="/scratch/$USER/hepbench_podman_${SLURM_JOB_ID:-$$}"
-
-_OWN_PODMAN_DIR=0   # 1 => this script created the dir and is responsible for deleting it
-if [ -z "${HEPBENCH_PODMAN_DIR:-}" ]; then
-    if [ -n "${SLURM_TMPDIR:-}" ]; then
-        HEPBENCH_PODMAN_DIR="$SLURM_TMPDIR"          # SLURM auto-cleans -> we don't
-    else
-        HEPBENCH_PODMAN_DIR="$NODE_SCRATCH_DEFAULT"  # our per-job dir -> we clean it
-        _OWN_PODMAN_DIR=1
-    fi
-fi
+# HEPBENCH_PODMAN_DIR is a BASE directory. Each array task gets its OWN per-job
+# subdir  <base>/hepbench_podman_<jobid>  as the podman image store, and removes
+# it on exit. So concurrent tasks NEVER share a store (no races on `podman load`)
+# and scratch doesn't fill with leftover ~17 GB image stores. The base must be
+# roomy node-local scratch, or the image load fails with "no space left on
+# device" (the default /tmp is tiny). Base preference:
+#   your $HEPBENCH_PODMAN_DIR, else $SLURM_TMPDIR, else /scratch/$USER.
+# >>> EDIT the /scratch fallback if your node-local scratch is elsewhere; set
+#     HEPBENCH_PODMAN_DRIVER=vfs if the base is on Lustre/NFS, not local disk. <<<
+PODMAN_BASE="${HEPBENCH_PODMAN_DIR:-${SLURM_TMPDIR:-/scratch/$USER}}"
+HEPBENCH_PODMAN_DIR="$PODMAN_BASE/hepbench_podman_${SLURM_JOB_ID:-$$}"
 export HEPBENCH_PODMAN_DIR
 
-# Clean up our per-job podman store on exit (success, failure, or SLURM timeout),
-# so scratch doesn't fill with leftover 17 GB image stores.
+# Remove THIS task's store on exit (success, failure, or SLURM timeout) so it
+# never accumulates. (--rm containers leave nothing mounted by the time we get
+# here; || true avoids failing the task on a stray busy mount.)
 cleanup() {
     rc=$?
-    if [ "${_OWN_PODMAN_DIR:-0}" = "1" ] && [ -n "${HEPBENCH_PODMAN_DIR:-}" ]; then
-        echo "[task $k] cleaning up podman store $HEPBENCH_PODMAN_DIR"
-        # containers ran with --rm, so nothing is mounted by the time we get here;
-        # plain rm frees the unpacked ~17 GB image. (|| true: don't fail the task
-        # on a stray busy mount -- node-local scratch is purged after the job too.)
+    if [ -n "${HEPBENCH_PODMAN_DIR:-}" ]; then
+        echo "[task $k] removing podman store $HEPBENCH_PODMAN_DIR"
         rm -rf "$HEPBENCH_PODMAN_DIR" 2>/dev/null || true
     fi
     exit "$rc"
@@ -75,7 +66,7 @@ trap cleanup EXIT
 
 echo "[task $k] $DATASET  files ${i_start}-${i_end}  mode=${MODE:-auto}  engine=$CONTAINER"
 echo "[task $k] dest=$DEST"
-echo "[task $k] podman store: $HEPBENCH_PODMAN_DIR (auto-clean=$_OWN_PODMAN_DIR)"
+echo "[task $k] podman store: $HEPBENCH_PODMAN_DIR (removed on exit)"
 
 # NOTE: run (don't exec) batch.sh so the EXIT trap fires for cleanup. set -e
 # makes a batch.sh failure propagate as the task's exit code.

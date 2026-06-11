@@ -119,16 +119,20 @@ Verify: `cernopendata-client version`.
 > # on a networked FS (Lustre/NFS) instead of local disk, also:
 > export HEPBENCH_PODMAN_DRIVER=vfs
 > ```
-> **Where to set it:** edit the marked line near the top of `slurm/convert.sbatch`
-> (applies to every job), or `export HEPBENCH_PODMAN_DIR=...` before running
-> `submit.sh`/`submit_lep1_*.sh` (it's forwarded to the jobs). `convert.sbatch`
-> defaults it to `$SLURM_TMPDIR`, else a per-job dir under `/scratch/$USER`.
+> **It's a *base* directory, not the store itself.** Each array task puts its
+> store in its own per-job subdir `<base>/hepbench_podman_<jobid>`, so concurrent
+> tasks never share one (no `podman load` races) and each is removed on exit. So
+> you can safely set a single base — every job carves out (and cleans up) its own
+> subdirectory under it. Base preference: your `HEPBENCH_PODMAN_DIR`, else
+> `$SLURM_TMPDIR`, else `/scratch/$USER`.
 >
-> **Cleanup is automatic.** The per-job `/scratch` store (the unpacked ~17 GB
-> image) is removed by `convert.sbatch` on exit — success, failure, or timeout —
-> so scratch doesn't fill up. (A `$SLURM_TMPDIR` store is cleaned by SLURM; a
-> store at a path *you* set explicitly is left alone, since you may be sharing it
-> across tasks.) Check where the store landed with `./get_image.sh check`.
+> **Where to set it:** edit the marked line near the top of `slurm/convert.sbatch`
+> (applies to every job), or `export HEPBENCH_PODMAN_DIR=/your/local/scratch`
+> before running `submit.sh`/`submit_lep1_*.sh` (it's forwarded to the jobs).
+>
+> **Cleanup is automatic.** Each task's per-job store (the unpacked ~17 GB image)
+> is `rm -rf`'d by `convert.sbatch` on exit — success, failure, or timeout — so
+> scratch doesn't fill up. Check where a store landed with `./get_image.sh check`.
 
 ---
 
