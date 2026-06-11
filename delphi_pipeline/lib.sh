@@ -75,19 +75,23 @@ to_mount_path() {
 # driver); for a networked FS (Lustre/NFS) also set HEPBENCH_PODMAN_DRIVER=vfs.
 : "${HEPBENCH_PODMAN_DIR:=${SLURM_TMPDIR:-}}"
 if [ -n "${HEPBENCH_PODMAN_DIR:-}" ]; then
-    if mkdir -p "$HEPBENCH_PODMAN_DIR/storage" "$HEPBENCH_PODMAN_DIR/run" \
-                "$HEPBENCH_PODMAN_DIR/tmp" 2>/dev/null; then
+    # Runtime state (runroot, events, sockets) must live on a LOCAL, writable dir.
+    # podman defaults it to $XDG_RUNTIME_DIR=/run/user/$UID, which is usually
+    # ABSENT in batch jobs (no login session) -> "RunRoot ... not writable" /
+    # "mkdir /run/user/<uid>: permission denied". It's tiny, so node-local /tmp is
+    # fine even when the big graphroot is on roomy (possibly network) scratch.
+    _hb_run="${HEPBENCH_PODMAN_RUNROOT:-/tmp/hepbench_podman_run_${USER:-u}_${SLURM_JOB_ID:-$$}}"
+    if mkdir -p "$HEPBENCH_PODMAN_DIR/storage" "$HEPBENCH_PODMAN_DIR/tmp" "$_hb_run" 2>/dev/null; then
         _hb_scfg="$HEPBENCH_PODMAN_DIR/storage.conf"
-        if [ ! -f "$_hb_scfg" ]; then
-            cat > "$_hb_scfg" <<EOF
+        cat > "$_hb_scfg" <<EOF
 [storage]
 driver = "${HEPBENCH_PODMAN_DRIVER:-overlay}"
 graphroot = "$HEPBENCH_PODMAN_DIR/storage"
-runroot = "$HEPBENCH_PODMAN_DIR/run"
+runroot = "$_hb_run"
 EOF
-        fi
-        export CONTAINERS_STORAGE_CONF="$_hb_scfg"   # podman (incl. docker->podman shim) honors this
-        export TMPDIR="$HEPBENCH_PODMAN_DIR/tmp"      # where image-load stages temp blobs
+        export CONTAINERS_STORAGE_CONF="$_hb_scfg"   # graphroot + runroot + driver
+        export XDG_RUNTIME_DIR="$_hb_run"            # podman runroot + events base (local, writable)
+        export TMPDIR="$HEPBENCH_PODMAN_DIR/tmp"     # image-load staging (big -> roomy scratch)
     else
         echo "[lib] WARNING: HEPBENCH_PODMAN_DIR not writable ($HEPBENCH_PODMAN_DIR);" >&2
         echo "[lib]          podman will use its default store -- image load may run out of space." >&2

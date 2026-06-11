@@ -45,12 +45,15 @@ export CONTAINER="${CONTAINER:-docker}"
 # roomy node-local scratch, or the image load fails with "no space left on
 # device" (the default /tmp is tiny). Base preference:
 #   your $HEPBENCH_PODMAN_DIR, else $SLURM_TMPDIR, else /scratch/$USER.
-# >>> EDIT the /scratch fallback if your node-local scratch is elsewhere; set
-#     HEPBENCH_PODMAN_DRIVER=vfs if the base is on Lustre/NFS, not local disk. <<<
-#PODMAN_BASE="${HEPBENCH_PODMAN_DIR:-${SLURM_TMPDIR:-/scratch/$USER}}"
-PODMAN_BASE="/n/netscratch/iaifi_lab/Everyone/sambt/podman_delphiOpenDataProcessing/"
+# >>> EDIT the base if your node-local scratch isn't /scratch. Keep it on LOCAL
+#     disk so the overlay driver works; only a network base needs
+#     HEPBENCH_PODMAN_DRIVER=vfs (slower). <<<
+# Node-local /scratch on FASRC Cannon: per-node, fast, overlay works, purged
+# after the job. Override by exporting HEPBENCH_PODMAN_DIR before submitting.
+PODMAN_BASE="${HEPBENCH_PODMAN_DIR:-/scratch/$USER}"
 HEPBENCH_PODMAN_DIR="$PODMAN_BASE/hepbench_podman_${SLURM_JOB_ID:-$$}"
 export HEPBENCH_PODMAN_DIR
+unset HEPBENCH_PODMAN_DRIVER   # local disk -> overlay (default); ensure no stray vfs
 
 # Remove THIS task's store on exit (success, failure, or SLURM timeout) so it
 # never accumulates. (--rm containers leave nothing mounted by the time we get
@@ -61,6 +64,8 @@ cleanup() {
         echo "[task $k] removing podman store $HEPBENCH_PODMAN_DIR"
         rm -rf "$HEPBENCH_PODMAN_DIR" 2>/dev/null || true
     fi
+    # also remove the small local runroot lib.sh put on /tmp (default name)
+    rm -rf "/tmp/hepbench_podman_run_${USER:-u}_${SLURM_JOB_ID:-$$}" 2>/dev/null || true
     exit "$rc"
 }
 trap cleanup EXIT

@@ -114,18 +114,31 @@ Verify: `cernopendata-client version`.
 > NFS/Lustre that needs the `vfs` driver (slower, more disk), so the
 > shared-tarball approach is usually the robust default.
 >
-> ### "no space left on device" on image load — `HEPBENCH_PODMAN_DIR`
+> ### Podman store on HPC — `HEPBENCH_PODMAN_DIR`
 > If a job dies with
 > `docker-archive: writing blob ... /tmp/...: no space left on device`, podman's
 > image **store + temp** are on a too-small `/tmp` and the ~17 GB image won't
 > fit. Point them at **roomy node-local scratch** — `lib.sh` then writes a
-> `storage.conf` (graphroot/runroot) there and sets `TMPDIR`, so every
-> `load`/`run`/`build` uses it:
+> `storage.conf` and sets the env so every `load`/`run`/`build` uses it:
 > ```bash
 > export HEPBENCH_PODMAN_DIR=/scratch/$USER/hepbench_podman_$SLURM_JOB_ID
-> # on a networked FS (Lustre/NFS) instead of local disk, also:
+> ```
+> `lib.sh` splits the locations by what each needs: the **big** graphroot + image
+> staging (`TMPDIR`) go on your `HEPBENCH_PODMAN_DIR`, while the **small** runtime
+> state (`runroot` + `XDG_RUNTIME_DIR`) goes on **local `/tmp`** — because podman
+> otherwise defaults runroot/events to `/run/user/$UID`, which is absent in batch
+> jobs (`RunRoot ... not writable` / `mkdir /run/user/<uid>: permission denied`).
+>
+> **Local disk vs networked FS.** The graphroot's **overlay** driver only works
+> on a **local** filesystem. If `HEPBENCH_PODMAN_DIR` is on a **networked** scratch
+> (Lustre/`netscratch`/NFS), overlay fails with
+> `a network file system with user namespaces is not supported` — switch to the
+> `vfs` driver (works anywhere, but slower and copies the full image per use):
+> ```bash
 > export HEPBENCH_PODMAN_DRIVER=vfs
 > ```
+> Prefer **node-local `/scratch`** (overlay, fast) when your nodes have it; reach
+> for a network base + `vfs` only if they don't.
 > **It's a *base* directory, not the store itself.** Each array task puts its
 > store in its own per-job subdir `<base>/hepbench_podman_<jobid>`, so concurrent
 > tasks never share one (no `podman load` races) and each is removed on exit. So
