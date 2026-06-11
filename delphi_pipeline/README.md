@@ -238,17 +238,26 @@ cluster). What `submit.sh` does:
 
 Key options: `--per-task N` (files/task, default 4), `--max-concurrent M`
 (default 20), `--range`/`--filter` to do a subset, `--keep-inputs`,
-`--max-events`, `--logdir`. **Anything after `--` is passed straight to
+`--max-events`, `--all`, `--logdir`. **Anything after `--` is passed straight to
 `sbatch`** (partition, account, time, memory, QOS, …) — the `#SBATCH` lines in
 `slurm/convert.sbatch` are only conservative defaults. Add `--dry-run` to print
 the array sizing and exact `sbatch` command without submitting.
 
+**Re-running only fills the gaps.** By default `submit.sh` first checks what's
+already converted under `--dest` and submits **only the array tasks whose chunk
+still has a missing `.root`** — so when a few files fail to convert (transient
+download/cluster hiccups), just re-run the exact same command and it submits a
+handful of tasks, not the whole array. A run with nothing missing prints
+"nothing to submit" and exits. Pass `--all` to force the full array
+(e.g. to re-convert everything from scratch). The `submit_lep1_*.sh` wrappers
+inherit this, so re-running them is the "retry stragglers" pass. Use `check.sh`
+to see exactly what's still missing.
+
 Tips for large campaigns:
 - Tune `--per-task` so each task runs a sensible wall-time (conversion is a few
   minutes/file natively, more under emulation). 1 file/task = maximal
-  parallelism but more scheduling overhead.
-- Re-submitting the same command after a partial run only fills in missing
-  `.root` files (resumability), so it doubles as a "retry failures" pass.
+  parallelism but more scheduling overhead (and, with gap-filling, the tightest
+  re-run array — one task per missing file).
 - Staging (`<dest>/.staging`) and inputs are deleted as files convert; only the
   `.root` tree and `<dest>/_logs` remain.
 
