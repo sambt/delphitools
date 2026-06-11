@@ -38,8 +38,16 @@ i_end=$(( i_start + PER_TASK - 1 ))
 # CONTAINER. On clusters with rootless podman, `docker` is usually a podman shim.
 export CONTAINER="${CONTAINER:-docker}"
 
+# Podman's image store + temp MUST sit on roomy node-local scratch, or the ~17 GB
+# image load fails with "no space left on device" (the default /tmp is tiny).
+# Prefer $SLURM_TMPDIR; otherwise a per-job dir on node-local /scratch. Override
+# HEPBENCH_PODMAN_DIR for your site (and set HEPBENCH_PODMAN_DRIVER=vfs if it must
+# live on a networked FS like Lustre). lib.sh consumes it.
+export HEPBENCH_PODMAN_DIR="${HEPBENCH_PODMAN_DIR:-${SLURM_TMPDIR:-/scratch/$USER/hepbench_podman_${SLURM_JOB_ID:-$$}}}"
+
 echo "[task $k] $DATASET  files ${i_start}-${i_end}  mode=${MODE:-auto}  engine=$CONTAINER"
 echo "[task $k] dest=$DEST"
+echo "[task $k] podman store: $HEPBENCH_PODMAN_DIR"
 
 exec "$PIPE_DIR/batch.sh" "$DATASET" --dest "$DEST" $MODE \
     --range "${i_start}-${i_end}" \

@@ -62,6 +62,38 @@ to_mount_path() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Podman storage relocation (HPC disk-space fix)
+# ---------------------------------------------------------------------------
+# By default rootless podman stores images (and stages image-load temp blobs)
+# under /tmp or /run/user/$UID, which on many compute nodes is small/tmpfs and
+# cannot hold the ~17 GB image -> load fails with:
+#   docker-archive: writing blob ... /tmp/...: no space left on device
+# Point $HEPBENCH_PODMAN_DIR at a ROOMY node-local scratch and every podman call
+# (load/run/build/save) will keep its store + temp there. Defaults to
+# $SLURM_TMPDIR inside a job if that is set. Use a node-local disk (overlay
+# driver); for a networked FS (Lustre/NFS) also set HEPBENCH_PODMAN_DRIVER=vfs.
+: "${HEPBENCH_PODMAN_DIR:=${SLURM_TMPDIR:-}}"
+if [ -n "${HEPBENCH_PODMAN_DIR:-}" ]; then
+    if mkdir -p "$HEPBENCH_PODMAN_DIR/storage" "$HEPBENCH_PODMAN_DIR/run" \
+                "$HEPBENCH_PODMAN_DIR/tmp" 2>/dev/null; then
+        _hb_scfg="$HEPBENCH_PODMAN_DIR/storage.conf"
+        if [ ! -f "$_hb_scfg" ]; then
+            cat > "$_hb_scfg" <<EOF
+[storage]
+driver = "${HEPBENCH_PODMAN_DRIVER:-overlay}"
+graphroot = "$HEPBENCH_PODMAN_DIR/storage"
+runroot = "$HEPBENCH_PODMAN_DIR/run"
+EOF
+        fi
+        export CONTAINERS_STORAGE_CONF="$_hb_scfg"   # podman (incl. docker->podman shim) honors this
+        export TMPDIR="$HEPBENCH_PODMAN_DIR/tmp"      # where image-load stages temp blobs
+    else
+        echo "[lib] WARNING: HEPBENCH_PODMAN_DIR not writable ($HEPBENCH_PODMAN_DIR);" >&2
+        echo "[lib]          podman will use its default store -- image load may run out of space." >&2
+    fi
+fi
+
 # Run a bash snippet inside the image. Caller sets two globals:
 #   MOUNTS=( "host:container[:ro]" ... )   bind mounts
 #   INNER="...bash..."                      command to run as: bash -c "$INNER"

@@ -106,6 +106,24 @@ Verify: `cernopendata-client version`.
 > persistent storage via `~/.config/containers/storage.conf` — but on
 > NFS/Lustre that needs the `vfs` driver (slower, more disk), so the
 > shared-tarball approach is usually the robust default.
+>
+> ### "no space left on device" on image load — `HEPBENCH_PODMAN_DIR`
+> If a job dies with
+> `docker-archive: writing blob ... /tmp/...: no space left on device`, podman's
+> image **store + temp** are on a too-small `/tmp` and the ~17 GB image won't
+> fit. Point them at **roomy node-local scratch** — `lib.sh` then writes a
+> `storage.conf` (graphroot/runroot) there and sets `TMPDIR`, so every
+> `load`/`run`/`build` uses it:
+> ```bash
+> export HEPBENCH_PODMAN_DIR=/scratch/$USER/hepbench_podman_$SLURM_JOB_ID
+> # on a networked FS (Lustre/NFS) instead of local disk, also:
+> export HEPBENCH_PODMAN_DRIVER=vfs
+> ```
+> `slurm/convert.sbatch` sets this automatically (prefers `$SLURM_TMPDIR`, else a
+> per-job dir under `/scratch/$USER`); edit that default if your cluster's
+> node-local scratch is elsewhere. `submit.sh` forwards an explicit
+> `HEPBENCH_PODMAN_DIR`/`HEPBENCH_PODMAN_DRIVER` to the job. Check where the store
+> landed with `./get_image.sh check`.
 
 ---
 
