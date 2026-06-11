@@ -90,7 +90,14 @@ Verify: `cernopendata-client version`.
 > The fix is built in: `get_image.sh auto` keeps a **tarball on shared storage**
 > and loads it (seconds–minutes) instead of rebuilding (~20 min). The **first**
 > job that finds no image builds it *and seeds the tarball*; **every later job
-> loads** from it. Point the tarball at persistent storage once:
+> loads** from it (`.tar` or `.tar.gz`). The **submit node never touches podman**
+> when the tarball already exists — `submit.sh` only checks that the tarball
+> *file* is present (`get_image.sh ensure-tarball`); the per-job stores do the
+> loading. This avoids the
+> `a network file system with user namespaces is not supported` /
+> `backing file system is unsupported for this graph driver` error you get when
+> the login node's default podman store sits on Lustre/NFS (overlay can't run
+> there). Point the tarball at persistent storage once:
 > ```bash
 > export HEPBENCH_IMAGE_TARBALL=/n/project/me/delphi-nanoaod-dev.tar   # default: <pipeline>/delphi-nanoaod-dev.tar
 > ./get_image.sh auto      # 1st job: build + save tarball;  later jobs: load tarball

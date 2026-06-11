@@ -127,8 +127,11 @@ fi
 # Ensure image + (for data) DDB on the submit node so tasks don't race on them.
 # (Skipped on --dry-run: a preview must not build images or download 3 GB.)
 if [ "$DRY" -eq 0 ]; then
-    echo "[submit] ensuring converter image..."
-    "$PIPE_DIR/get_image.sh" auto
+    # Ensure the image TARBALL exists (a file check -- does NOT touch podman on
+    # the submit node, whose default store may be on Lustre where overlay fails).
+    # Each job loads the tarball into its own local-scratch store.
+    echo "[submit] ensuring converter image tarball..."
+    "$PIPE_DIR/get_image.sh" ensure-tarball
     EFFMODE="$MODE"
     case "$DATASET" in data) EFFMODE="${EFFMODE:---data}";; mc|mc-apacic) EFFMODE="${EFFMODE:---mc}";; esac
     if [ "$EFFMODE" = "--data" ] && [ -z "${DDB_DIR:-}" ]; then
