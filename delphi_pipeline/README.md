@@ -108,11 +108,7 @@ Verify: `cernopendata-client version`.
 > automatically — set `HEPBENCH_IMAGE_TARBALL` in your job environment.
 >
 > *Array jobs:* each compute node loads the tarball once into its own local
-> store (first task on that node); later tasks on the same node reuse it. If
-> you'd rather avoid even the per-node load, point podman's `graphroot` at
-> persistent storage via `~/.config/containers/storage.conf` — but on
-> NFS/Lustre that needs the `vfs` driver (slower, more disk), so the
-> shared-tarball approach is usually the robust default.
+> store (first task on that node); later tasks on the same node reuse it.
 >
 > ### Podman store on HPC — `HEPBENCH_PODMAN_DIR`
 > If a job dies with
@@ -129,16 +125,16 @@ Verify: `cernopendata-client version`.
 > otherwise defaults runroot/events to `/run/user/$UID`, which is absent in batch
 > jobs (`RunRoot ... not writable` / `mkdir /run/user/<uid>: permission denied`).
 >
-> **Local disk vs networked FS.** The graphroot's **overlay** driver only works
-> on a **local** filesystem. If `HEPBENCH_PODMAN_DIR` is on a **networked** scratch
-> (Lustre/`netscratch`/NFS), overlay fails with
-> `a network file system with user namespaces is not supported` — switch to the
-> `vfs` driver (works anywhere, but slower and copies the full image per use):
-> ```bash
-> export HEPBENCH_PODMAN_DRIVER=vfs
-> ```
-> Prefer **node-local `/scratch`** (overlay, fast) when your nodes have it; reach
-> for a network base + `vfs` only if they don't.
+> **Must be node-local disk.** The graphroot's **overlay** driver only works on a
+> **local** filesystem; a **networked** scratch (Lustre/`netscratch`/NFS) fails
+> with `a network file system with user namespaces is not supported`. So point
+> `HEPBENCH_PODMAN_DIR` at each node's local `/scratch`, **not** `$SCRATCH`/
+> netscratch. ⚠️ Mind the partition's local-scratch size: on FASRC Cannon the
+> `shared` partition has only **~68 GB** of local `/scratch` per node (and it's
+> shared with other users' jobs), while the ~17 GB image needs **~2×** that at
+> peak during `podman load` — so a busy `shared` node can run out mid-load and
+> leave files unconverted. Prefer a partition with bigger local scratch
+> (sapphire/test/bigmem/gpu ~396 GB) for headroom.
 > **It's a *base* directory, not the store itself.** Each array task puts its
 > store in its own per-job subdir `<base>/hepbench_podman_<jobid>`, so concurrent
 > tasks never share one (no `podman load` races) and each is removed on exit. So

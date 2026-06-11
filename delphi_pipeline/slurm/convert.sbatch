@@ -42,18 +42,21 @@ export CONTAINER="${CONTAINER:-docker}"
 # subdir  <base>/hepbench_podman_<jobid>  as the podman image store, and removes
 # it on exit. So concurrent tasks NEVER share a store (no races on `podman load`)
 # and scratch doesn't fill with leftover ~17 GB image stores. The base must be
-# roomy node-local scratch, or the image load fails with "no space left on
-# device" (the default /tmp is tiny). Base preference:
+# roomy node-local scratch (overlay driver), or the image load fails with "no
+# space left on device" (the default /tmp is tiny). Base preference:
 #   your $HEPBENCH_PODMAN_DIR, else $SLURM_TMPDIR, else /scratch/$USER.
 # >>> EDIT the base if your node-local scratch isn't /scratch. Keep it on LOCAL
-#     disk so the overlay driver works; only a network base needs
-#     HEPBENCH_PODMAN_DRIVER=vfs (slower). <<<
+#     disk so the overlay driver works. <<<
 # Node-local /scratch on FASRC Cannon: per-node, fast, overlay works, purged
 # after the job. Override by exporting HEPBENCH_PODMAN_DIR before submitting.
+# WATCH THE PARTITION'S LOCAL SCRATCH SIZE: the `shared` partition has only
+# ~68 GB of local /scratch per node (and it's shared with other users' jobs);
+# the ~17 GB image needs ~2x that at peak during `podman load`, so it can run
+# out. Prefer a partition with bigger local scratch (sapphire/test/bigmem/gpu
+# ~396 GB) for headroom.
 PODMAN_BASE="${HEPBENCH_PODMAN_DIR:-/scratch/$USER}"
 HEPBENCH_PODMAN_DIR="$PODMAN_BASE/hepbench_podman_${SLURM_JOB_ID:-$$}"
 export HEPBENCH_PODMAN_DIR
-unset HEPBENCH_PODMAN_DRIVER   # local disk -> overlay (default); ensure no stray vfs
 
 # Remove THIS task's store on exit (success, failure, or SLURM timeout) so it
 # never accumulates. (--rm containers leave nothing mounted by the time we get

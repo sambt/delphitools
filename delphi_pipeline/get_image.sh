@@ -109,7 +109,7 @@ case "${1:-auto}" in
             echo "[get_image] no tarball ($TARBALL) and no image in store; building once..."
             echo "[get_image] (if this is a login node on a networked FS, build on a"
             echo "[get_image]  node with local-disk podman storage, or set HEPBENCH_PODMAN_DIR"
-            echo "[get_image]  to local disk / HEPBENCH_PODMAN_DRIVER=vfs, then ./get_image.sh save)"
+            echo "[get_image]  to local disk, then ./get_image.sh save)"
             do_build
             do_save "$TARBALL" || echo "[get_image] WARNING: could not write tarball $TARBALL" >&2
         fi ;;
