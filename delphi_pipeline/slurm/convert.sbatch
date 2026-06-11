@@ -47,7 +47,8 @@ export CONTAINER="${CONTAINER:-docker}"
 #   your $HEPBENCH_PODMAN_DIR, else $SLURM_TMPDIR, else /scratch/$USER.
 # >>> EDIT the /scratch fallback if your node-local scratch is elsewhere; set
 #     HEPBENCH_PODMAN_DRIVER=vfs if the base is on Lustre/NFS, not local disk. <<<
-PODMAN_BASE="${HEPBENCH_PODMAN_DIR:-${SLURM_TMPDIR:-/scratch/$USER}}"
+#PODMAN_BASE="${HEPBENCH_PODMAN_DIR:-${SLURM_TMPDIR:-/scratch/$USER}}"
+PODMAN_BASE="/n/netscratch/iaifi_lab/Everyone/sambt/podman_delphiOpenDataProcessing/"
 HEPBENCH_PODMAN_DIR="$PODMAN_BASE/hepbench_podman_${SLURM_JOB_ID:-$$}"
 export HEPBENCH_PODMAN_DIR
 
