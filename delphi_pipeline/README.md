@@ -119,11 +119,16 @@ Verify: `cernopendata-client version`.
 > # on a networked FS (Lustre/NFS) instead of local disk, also:
 > export HEPBENCH_PODMAN_DRIVER=vfs
 > ```
-> `slurm/convert.sbatch` sets this automatically (prefers `$SLURM_TMPDIR`, else a
-> per-job dir under `/scratch/$USER`); edit that default if your cluster's
-> node-local scratch is elsewhere. `submit.sh` forwards an explicit
-> `HEPBENCH_PODMAN_DIR`/`HEPBENCH_PODMAN_DRIVER` to the job. Check where the store
-> landed with `./get_image.sh check`.
+> **Where to set it:** edit the marked line near the top of `slurm/convert.sbatch`
+> (applies to every job), or `export HEPBENCH_PODMAN_DIR=...` before running
+> `submit.sh`/`submit_lep1_*.sh` (it's forwarded to the jobs). `convert.sbatch`
+> defaults it to `$SLURM_TMPDIR`, else a per-job dir under `/scratch/$USER`.
+>
+> **Cleanup is automatic.** The per-job `/scratch` store (the unpacked ~17 GB
+> image) is removed by `convert.sbatch` on exit — success, failure, or timeout —
+> so scratch doesn't fill up. (A `$SLURM_TMPDIR` store is cleaned by SLURM; a
+> store at a path *you* set explicitly is left alone, since you may be sharing it
+> across tasks.) Check where the store landed with `./get_image.sh check`.
 
 ---
 
