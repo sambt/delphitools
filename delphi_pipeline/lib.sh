@@ -71,21 +71,22 @@ to_mount_path() {
 #   docker-archive: writing blob ... /tmp/...: no space left on device
 # Point $HEPBENCH_PODMAN_DIR at a ROOMY node-local scratch and every podman call
 # (load/run/build/save) will keep its store + temp there. Defaults to
-# $SLURM_TMPDIR inside a job if that is set. Use a node-local disk (overlay
-# driver); for a networked FS (Lustre/NFS) also set HEPBENCH_PODMAN_DRIVER=vfs.
+# $SLURM_TMPDIR inside a job if that is set. Must be a node-local disk so the
+# overlay driver works -- a networked FS (Lustre/NFS/netscratch) would fail with
+# "a network file system with user namespaces is not supported".
 : "${HEPBENCH_PODMAN_DIR:=${SLURM_TMPDIR:-}}"
 if [ -n "${HEPBENCH_PODMAN_DIR:-}" ]; then
     # Runtime state (runroot, events, sockets) must live on a LOCAL, writable dir.
     # podman defaults it to $XDG_RUNTIME_DIR=/run/user/$UID, which is usually
     # ABSENT in batch jobs (no login session) -> "RunRoot ... not writable" /
     # "mkdir /run/user/<uid>: permission denied". It's tiny, so node-local /tmp is
-    # fine even when the big graphroot is on roomy (possibly network) scratch.
+    # fine even when the big graphroot is on roomy node-local scratch.
     _hb_run="${HEPBENCH_PODMAN_RUNROOT:-/tmp/hepbench_podman_run_${USER:-u}_${SLURM_JOB_ID:-$$}}"
     if mkdir -p "$HEPBENCH_PODMAN_DIR/storage" "$HEPBENCH_PODMAN_DIR/tmp" "$_hb_run" 2>/dev/null; then
         _hb_scfg="$HEPBENCH_PODMAN_DIR/storage.conf"
         cat > "$_hb_scfg" <<EOF
 [storage]
-driver = "${HEPBENCH_PODMAN_DRIVER:-overlay}"
+driver = "overlay"
 graphroot = "$HEPBENCH_PODMAN_DIR/storage"
 runroot = "$_hb_run"
 EOF
