@@ -127,11 +127,8 @@ fi
 # Ensure image + (for data) DDB on the submit node so tasks don't race on them.
 # (Skipped on --dry-run: a preview must not build images or download 3 GB.)
 if [ "$DRY" -eq 0 ]; then
-    # Ensure the image TARBALL exists (a file check -- does NOT touch podman on
-    # the submit node, whose default store may be on Lustre where overlay fails).
-    # Each job loads the tarball into its own local-scratch store.
-    echo "[submit] ensuring converter image tarball..."
-    "$PIPE_DIR/get_image.sh" ensure-tarball
+    echo "[submit] ensuring converter image..."
+    "$PIPE_DIR/get_image.sh" auto
     EFFMODE="$MODE"
     case "$DATASET" in data) EFFMODE="${EFFMODE:---data}";; mc|mc-apacic) EFFMODE="${EFFMODE:---mc}";; esac
     if [ "$EFFMODE" = "--data" ] && [ -z "${DDB_DIR:-}" ]; then
@@ -150,7 +147,6 @@ EXPORTS="ALL,PIPE_DIR=$PIPE_DIR,DATASET=$DATASET,DEST=$DEST,PER_TASK=$PER_TASK"
 [ "$BYTYPE" -eq 1 ] && EXPORTS="$EXPORTS,BYTYPE=1"
 [ -n "${DDB_DIR:-}" ] && EXPORTS="$EXPORTS,DDB_DIR=$DDB_DIR"
 [ -n "${CONTAINER:-}" ] && EXPORTS="$EXPORTS,CONTAINER=$CONTAINER"
-[ -n "${HEPBENCH_PODMAN_DIR:-}" ] && EXPORTS="$EXPORTS,HEPBENCH_PODMAN_DIR=$HEPBENCH_PODMAN_DIR"
 
 SB=(sbatch --array="${ARRAY}%${MAXC}"
     --chdir="$LOGDIR"

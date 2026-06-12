@@ -62,63 +62,6 @@ to_mount_path() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# Podman runtime + storage relocation (HPC fixes)
-# ---------------------------------------------------------------------------
-# Two independent problems on HPC, fixed here for rootless podman (the `docker`
-# command is usually a podman shim, so these apply to it too):
-#
-# (1) RUNTIME STATE (runroot, events dir, sockets) defaults to
-#     $XDG_RUNTIME_DIR = /run/user/$UID, which is often ABSENT or not writable
-#     in batch/interactive jobs with no login session ->
-#       "RunRoot is pointing to a path ... which is not writable" /
-#       "creating events dirs: mkdir /run/user/<uid>: permission denied".
-#     It's tiny, so we ALWAYS relocate it to a node-local /tmp dir when the
-#     default isn't usable -- regardless of HEPBENCH_PODMAN_DIR (this fires even
-#     for a plain `./get_image.sh` on a login/interactive node).
-#
-# (2) IMAGE STORE + load temp default to /tmp or /run/user/$UID, too small for
-#     the ~17 GB image -> "writing blob ... no space left on device". Point
-#     $HEPBENCH_PODMAN_DIR at ROOMY node-local scratch and the store + load
-#     staging go there. Defaults to $SLURM_TMPDIR inside a job if set. Must be a
-#     node-local disk so the overlay driver works -- a networked FS
-#     (Lustre/NFS/netscratch) would fail with "a network file system with user
-#     namespaces is not supported".
-
-# (1) Pick a writable runroot. Keep an existing, usable $XDG_RUNTIME_DIR (don't
-#     clobber a working login session); otherwise relocate to node-local /tmp.
-_hb_xdg="${XDG_RUNTIME_DIR:-/run/user/$(id -u 2>/dev/null || echo "${UID:-}")}"
-if [ -n "$_hb_xdg" ] && [ -d "$_hb_xdg" ] && [ -w "$_hb_xdg" ]; then
-    _hb_run="$_hb_xdg"
-else
-    _hb_run="${HEPBENCH_PODMAN_RUNROOT:-/tmp/hepbench_podman_run_${USER:-u}_${SLURM_JOB_ID:-$$}}"
-    if mkdir -p "$_hb_run" 2>/dev/null; then
-        export XDG_RUNTIME_DIR="$_hb_run"   # podman runroot + events base (local, writable)
-    else
-        echo "[lib] WARNING: could not create a writable runroot ($_hb_run);" >&2
-        echo "[lib]          podman may fail with 'RunRoot ... not writable'." >&2
-    fi
-fi
-
-# (2) Relocate the big image store + load staging to roomy node-local scratch.
-: "${HEPBENCH_PODMAN_DIR:=${SLURM_TMPDIR:-}}"
-if [ -n "${HEPBENCH_PODMAN_DIR:-}" ]; then
-    if mkdir -p "$HEPBENCH_PODMAN_DIR/storage" "$HEPBENCH_PODMAN_DIR/tmp" 2>/dev/null; then
-        _hb_scfg="$HEPBENCH_PODMAN_DIR/storage.conf"
-        cat > "$_hb_scfg" <<EOF
-[storage]
-driver = "overlay"
-graphroot = "$HEPBENCH_PODMAN_DIR/storage"
-runroot = "$_hb_run"
-EOF
-        export CONTAINERS_STORAGE_CONF="$_hb_scfg"   # graphroot + runroot + driver
-        export TMPDIR="$HEPBENCH_PODMAN_DIR/tmp"     # image-load staging (big -> roomy scratch)
-    else
-        echo "[lib] WARNING: HEPBENCH_PODMAN_DIR not writable ($HEPBENCH_PODMAN_DIR);" >&2
-        echo "[lib]          podman will use its default store -- image load may run out of space." >&2
-    fi
-fi
-
 # Run a bash snippet inside the image. Caller sets two globals:
 #   MOUNTS=( "host:container[:ro]" ... )   bind mounts
 #   INNER="...bash..."                      command to run as: bash -c "$INNER"

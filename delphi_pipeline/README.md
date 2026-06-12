@@ -90,14 +90,7 @@ Verify: `cernopendata-client version`.
 > The fix is built in: `get_image.sh auto` keeps a **tarball on shared storage**
 > and loads it (seconds–minutes) instead of rebuilding (~20 min). The **first**
 > job that finds no image builds it *and seeds the tarball*; **every later job
-> loads** from it (`.tar` or `.tar.gz`). The **submit node never touches podman**
-> when the tarball already exists — `submit.sh` only checks that the tarball
-> *file* is present (`get_image.sh ensure-tarball`); the per-job stores do the
-> loading. This avoids the
-> `a network file system with user namespaces is not supported` /
-> `backing file system is unsupported for this graph driver` error you get when
-> the login node's default podman store sits on Lustre/NFS (overlay can't run
-> there). Point the tarball at persistent storage once:
+> loads** from it. Point the tarball at persistent storage once:
 > ```bash
 > export HEPBENCH_IMAGE_TARBALL=/n/project/me/delphi-nanoaod-dev.tar   # default: <pipeline>/delphi-nanoaod-dev.tar
 > ./get_image.sh auto      # 1st job: build + save tarball;  later jobs: load tarball
@@ -108,47 +101,11 @@ Verify: `cernopendata-client version`.
 > automatically — set `HEPBENCH_IMAGE_TARBALL` in your job environment.
 >
 > *Array jobs:* each compute node loads the tarball once into its own local
-> store (first task on that node); later tasks on the same node reuse it.
->
-> ### Podman store on HPC — `HEPBENCH_PODMAN_DIR`
-> If a job dies with
-> `docker-archive: writing blob ... /tmp/...: no space left on device`, podman's
-> image **store + temp** are on a too-small `/tmp` and the ~17 GB image won't
-> fit. Point them at **roomy node-local scratch** — `lib.sh` then writes a
-> `storage.conf` and sets the env so every `load`/`run`/`build` uses it:
-> ```bash
-> export HEPBENCH_PODMAN_DIR=/scratch/$USER/hepbench_podman_$SLURM_JOB_ID
-> ```
-> `lib.sh` splits the locations by what each needs: the **big** graphroot + image
-> staging (`TMPDIR`) go on your `HEPBENCH_PODMAN_DIR`, while the **small** runtime
-> state (`runroot` + `XDG_RUNTIME_DIR`) goes on **local `/tmp`** — because podman
-> otherwise defaults runroot/events to `/run/user/$UID`, which is absent in batch
-> jobs (`RunRoot ... not writable` / `mkdir /run/user/<uid>: permission denied`).
->
-> **Must be node-local disk.** The graphroot's **overlay** driver only works on a
-> **local** filesystem; a **networked** scratch (Lustre/`netscratch`/NFS) fails
-> with `a network file system with user namespaces is not supported`. So point
-> `HEPBENCH_PODMAN_DIR` at each node's local `/scratch`, **not** `$SCRATCH`/
-> netscratch. ⚠️ Mind the partition's local-scratch size: on FASRC Cannon the
-> `shared` partition has only **~68 GB** of local `/scratch` per node (and it's
-> shared with other users' jobs), while the ~17 GB image needs **~2×** that at
-> peak during `podman load` — so a busy `shared` node can run out mid-load and
-> leave files unconverted. Prefer a partition with bigger local scratch
-> (sapphire/test/bigmem/gpu ~396 GB) for headroom.
-> **It's a *base* directory, not the store itself.** Each array task puts its
-> store in its own per-job subdir `<base>/hepbench_podman_<jobid>`, so concurrent
-> tasks never share one (no `podman load` races) and each is removed on exit. So
-> you can safely set a single base — every job carves out (and cleans up) its own
-> subdirectory under it. Base preference: your `HEPBENCH_PODMAN_DIR`, else
-> `$SLURM_TMPDIR`, else `/scratch/$USER`.
->
-> **Where to set it:** edit the marked line near the top of `slurm/convert.sbatch`
-> (applies to every job), or `export HEPBENCH_PODMAN_DIR=/your/local/scratch`
-> before running `submit.sh`/`submit_lep1_*.sh` (it's forwarded to the jobs).
->
-> **Cleanup is automatic.** Each task's per-job store (the unpacked ~17 GB image)
-> is `rm -rf`'d by `convert.sbatch` on exit — success, failure, or timeout — so
-> scratch doesn't fill up. Check where a store landed with `./get_image.sh check`.
+> store (first task on that node); later tasks on the same node reuse it. If
+> you'd rather avoid even the per-node load, point podman's `graphroot` at
+> persistent storage via `~/.config/containers/storage.conf` — but on
+> NFS/Lustre that needs the `vfs` driver (slower, more disk), so the
+> shared-tarball approach is usually the robust default.
 
 ---
 

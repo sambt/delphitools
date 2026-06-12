@@ -38,62 +38,10 @@ i_end=$(( i_start + PER_TASK - 1 ))
 # CONTAINER. On clusters with rootless podman, `docker` is usually a podman shim.
 export CONTAINER="${CONTAINER:-docker}"
 
-# HEPBENCH_PODMAN_DIR is a BASE directory. Each array task gets its OWN per-job
-# subdir  <base>/hepbench_podman_<jobid>  as the podman image store, and removes
-# it on exit. So concurrent tasks NEVER share a store (no races on `podman load`)
-# and scratch doesn't fill with leftover ~17 GB image stores. The base must be a
-# WRITABLE, roomy, NODE-LOCAL scratch (overlay driver), or the image load fails.
-#
-# IMPORTANT (FASRC Cannon): the bare /scratch and /scratch/$USER are NOT directly
-# user-writable inside a job -- SLURM pre-creates a per-job local-scratch dir and
-# points $TMPDIR at it (/scratch/$USER/$SLURM_JOB_ID, auto-removed at job end).
-# A hard-coded /scratch/$USER base therefore fails to mkdir, and podman then
-# falls back to /run/user/$UID -> "RunRoot ... not writable" / "creating events
-# dirs: mkdir /run/user/<uid>: permission denied". So prefer the SLURM per-job
-# local dir ($TMPDIR) and VERIFY writability, walking a fallback chain. (Do NOT
-# use $SCRATCH/netscratch -- it's networked; the overlay driver needs local disk.)
-#
-# WATCH THE PARTITION'S LOCAL SCRATCH SIZE: the `shared` partition has only
-# ~68 GB of local /scratch per node (shared with other users' jobs); the ~17 GB
-# image needs ~2x that at peak during `podman load`, so it can run out -- prefer
-# a partition with bigger local scratch (sapphire/test/bigmem/gpu ~396 GB).
-# Override the base by exporting HEPBENCH_PODMAN_DIR before submitting.
-_hb_pick_base() {
-    local c
-    for c in "${HEPBENCH_PODMAN_DIR:-}" "${TMPDIR:-}" "${SLURM_TMPDIR:-}" \
-             "/scratch/${SLURM_JOB_USER:-$USER}/${SLURM_JOB_ID:-}" \
-             "/scratch/$USER" "/tmp/$USER"; do
-        [ -n "$c" ] || continue
-        if mkdir -p "$c" 2>/dev/null && [ -w "$c" ]; then printf '%s' "$c"; return 0; fi
-    done
-    printf '%s' "/tmp"
-}
-PODMAN_BASE="$(_hb_pick_base)"
-HEPBENCH_PODMAN_DIR="$PODMAN_BASE/hepbench_podman_${SLURM_JOB_ID:-$$}"
-export HEPBENCH_PODMAN_DIR
-
-# Remove THIS task's store on exit (success, failure, or SLURM timeout) so it
-# never accumulates. (--rm containers leave nothing mounted by the time we get
-# here; || true avoids failing the task on a stray busy mount.)
-cleanup() {
-    rc=$?
-    if [ -n "${HEPBENCH_PODMAN_DIR:-}" ]; then
-        echo "[task $k] removing podman store $HEPBENCH_PODMAN_DIR"
-        rm -rf "$HEPBENCH_PODMAN_DIR" 2>/dev/null || true
-    fi
-    # also remove the small local runroot lib.sh put on /tmp (default name)
-    rm -rf "/tmp/hepbench_podman_run_${USER:-u}_${SLURM_JOB_ID:-$$}" 2>/dev/null || true
-    exit "$rc"
-}
-trap cleanup EXIT
-
 echo "[task $k] $DATASET  files ${i_start}-${i_end}  mode=${MODE:-auto}  engine=$CONTAINER"
 echo "[task $k] dest=$DEST"
-echo "[task $k] podman store: $HEPBENCH_PODMAN_DIR (base=$PODMAN_BASE, removed on exit)"
 
-# NOTE: run (don't exec) batch.sh so the EXIT trap fires for cleanup. set -e
-# makes a batch.sh failure propagate as the task's exit code.
-"$PIPE_DIR/batch.sh" "$DATASET" --dest "$DEST" $MODE \
+exec "$PIPE_DIR/batch.sh" "$DATASET" --dest "$DEST" $MODE \
     --range "${i_start}-${i_end}" \
     ${MAXEV:+--max-events "$MAXEV"} \
     ${KEEP:+--keep-inputs} \
